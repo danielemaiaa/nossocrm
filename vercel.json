@@ -30,7 +30,7 @@
     },
     {
       "path": "/api/cron/stage-evaluations",
-      "schedule": "0 * * * *"
+      "schedule": "0 9 * * *"
     }
   ]
 }
