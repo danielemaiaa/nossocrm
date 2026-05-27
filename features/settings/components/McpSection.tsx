@@ -114,6 +114,7 @@ export const McpSection: React.FC = () => {
     try {
       const commonHeaders: Record<string, string> = {
         'Content-Type': 'application/json',
+        'Accept': 'application/json, text/event-stream',
         'MCP-Protocol-Version': protocolVersion,
         // Prefer Bearer for MCP clients; also send X-Api-Key for compatibility.
         Authorization: `Bearer ${token}`,
