@@ -188,7 +188,7 @@ export const ConversationList = memo(function ConversationList({
                     {channel.id !== 'all' && (
                       <ChannelIndicator type={channel.id as ChannelType} size="sm" />
                     )}
-                    {channel.id === 'all' ? channel.label : ''}
+                    {channel.label}
                   </button>
                 ))}
               </div>

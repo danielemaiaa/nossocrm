@@ -18,6 +18,7 @@ import {
 import { queryKeys } from '../index';
 import { supabase } from '@/lib/supabase';
 import { sanitizePostgrestValue } from '@/lib/utils/sanitize';
+import { invalidateConversationCache } from '@/lib/messaging/conversation-cache';
 import { useAuth } from '@/context/AuthContext';
 import type {
   DbMessagingConversation,
@@ -473,6 +474,9 @@ export function useDeleteConversation() {
 
       if (conversationError) throw conversationError;
 
+      // Invalidate server-side cache so next webhook for this contact starts fresh
+      invalidateConversationCache(conversationId);
+
       return conversationId;
     },
     onSuccess: (deletedId) => {
@@ -494,6 +498,12 @@ export function useDeleteConversation() {
           return (old as ConversationView[]).filter((conv) => conv.id !== deletedId);
         }
       );
+    },
+    onError: (_error, conversationId) => {
+      // Delete failed — release the pending-deletion guard and restore the conversation
+      // in the list by invalidating so the list refetches from DB.
+      removePendingDeletion(conversationId);
+      queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all });
     },
     onSettled: () => {
       // NOTE: removePendingDeletion is intentionally NOT called here.
