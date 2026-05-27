@@ -12,7 +12,7 @@ export const McpSection: React.FC = () => {
   const { addToast } = useOptionalToast();
 
   const endpointPath = '/api/mcp';
-  const protocolVersion = '2025-11-25';
+  const protocolVersion = '2025-03-26';
 
   const [apiKey, setApiKey] = useState('');
   const [creatingKey, setCreatingKey] = useState(false);
@@ -129,7 +129,7 @@ export const McpSection: React.FC = () => {
           jsonrpc: '2.0',
           id: 1,
           method: 'initialize',
-          params: { clientInfo: { name: 'crm-settings-ui', version: '0' }, capabilities: {} },
+          params: { protocolVersion, clientInfo: { name: 'crm-settings-ui', version: '0' }, capabilities: {} },
         }),
       });
       const initParsed = await parseJsonSafe(initRes);
