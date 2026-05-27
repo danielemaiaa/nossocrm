@@ -95,8 +95,12 @@ export const McpSection: React.FC = () => {
   const parseJsonSafe = async (res: Response) => {
     const text = await res.text().catch(() => '');
     if (!text) return { json: null as any, text: '' };
+    // MCP Streamable HTTP responses come as SSE (text/event-stream).
+    // Extract JSON from the first "data: {...}" line.
+    const dataLine = text.split('\n').find((l) => l.startsWith('data:'));
+    const jsonText = dataLine ? dataLine.slice('data:'.length).trim() : text;
     try {
-      return { json: JSON.parse(text), text };
+      return { json: JSON.parse(jsonText), text };
     } catch {
       return { json: null as any, text };
     }
