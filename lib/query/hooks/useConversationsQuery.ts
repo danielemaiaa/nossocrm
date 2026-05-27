@@ -104,8 +104,15 @@ export function useConversations(filters?: ConversationFilters) {
         query = query.eq('organization_id', profile.organization_id);
       }
 
+      // Show deleted or active conversations
+      if (filters?.deleted === true) {
+        query = query.not('deleted_at', 'is', null);
+      } else {
+        query = query.is('deleted_at', null);
+      }
+
       // Apply filters
-      if (filters?.status && filters.status !== 'all') {
+      if (filters?.status && filters.status !== 'all' && !filters?.deleted) {
         query = query.eq('status', filters.status);
       }
       if (filters?.channelId) {
@@ -458,18 +465,21 @@ export function useDeleteConversation() {
 
   return useMutation({
     mutationFn: async (conversationId: string) => {
-      // Delete messages first (FK constraint)
+      const now = new Date().toISOString();
+
+      // Soft-delete messages
       const { error: messagesError } = await supabase
         .from('messaging_messages')
-        .delete()
-        .eq('conversation_id', conversationId);
+        .update({ deleted_at: now })
+        .eq('conversation_id', conversationId)
+        .is('deleted_at', null);
 
       if (messagesError) throw messagesError;
 
-      // Then delete conversation
+      // Soft-delete conversation
       const { error: conversationError } = await supabase
         .from('messaging_conversations')
-        .delete()
+        .update({ deleted_at: now })
         .eq('id', conversationId);
 
       if (conversationError) throw conversationError;
@@ -519,6 +529,36 @@ export function useDeleteConversation() {
       queryClient.invalidateQueries({
         queryKey: queryKeys.messagingConversations.unreadCount(),
       });
+    },
+  });
+}
+
+/**
+ * Restore a soft-deleted conversation and its messages.
+ */
+export function useRestoreConversation() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      const { error: messagesError } = await supabase
+        .from('messaging_messages')
+        .update({ deleted_at: null })
+        .eq('conversation_id', conversationId);
+
+      if (messagesError) throw messagesError;
+
+      const { error } = await supabase
+        .from('messaging_conversations')
+        .update({ deleted_at: null })
+        .eq('id', conversationId);
+
+      if (error) throw error;
+
+      return conversationId;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.messagingConversations.all });
     },
   });
 }

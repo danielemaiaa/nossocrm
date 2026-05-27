@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useState, useMemo, useCallback, memo } from 'react';
-import { Search, Filter, Inbox, CheckCircle, X } from 'lucide-react';
+import { Search, Filter, Inbox, CheckCircle, X, Trash2, RotateCcw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ConversationItem } from './ConversationItem';
 import { ChannelIndicator } from './ChannelIndicator';
-import { useConversations } from '@/lib/query/hooks/useConversationsQuery';
+import { useConversations, useRestoreConversation } from '@/lib/query/hooks/useConversationsQuery';
 import type { ConversationFilters, ConversationStatus, ChannelType, ConversationView } from '@/lib/messaging/types';
 import type { PresenceStatus } from '@/lib/messaging/hooks/useContactPresence';
 
@@ -57,19 +57,23 @@ export const ConversationList = memo(function ConversationList({
   businessUnitId,
   getPresence,
 }: ConversationListProps) {
-  const [statusFilter, setStatusFilter] = useState<ConversationStatus | 'all'>('open');
+  const [statusFilter, setStatusFilter] = useState<ConversationStatus | 'all' | 'deleted'>('open');
   const [searchQuery, setSearchQuery] = useState('');
   const [channelFilter, setChannelFilter] = useState<ChannelType | 'all'>('all');
   const [showUnreadOnly, setShowUnreadOnly] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
+  const isTrashView = statusFilter === 'deleted';
+  const restoreConversation = useRestoreConversation();
+
   const filters: ConversationFilters = useMemo(() => ({
-    status: statusFilter,
+    status: isTrashView ? undefined : (statusFilter as ConversationStatus | 'all'),
+    deleted: isTrashView ? true : false,
     businessUnitId,
     search: searchQuery || undefined,
     channelType: channelFilter !== 'all' ? channelFilter : undefined,
     hasUnread: showUnreadOnly || undefined,
-  }), [statusFilter, businessUnitId, searchQuery, channelFilter, showUnreadOnly]);
+  }), [statusFilter, isTrashView, businessUnitId, searchQuery, channelFilter, showUnreadOnly]);
 
   const { data: conversations, isLoading, error } = useConversations(filters);
 
@@ -88,6 +92,7 @@ export const ConversationList = memo(function ConversationList({
   const statusTabs = [
     { id: 'open' as const, label: 'Abertas', icon: Inbox },
     { id: 'resolved' as const, label: 'Resolvidas', icon: CheckCircle },
+    { id: 'deleted' as const, label: 'Lixeira', icon: Trash2 },
   ];
 
   return (
@@ -255,22 +260,39 @@ export const ConversationList = memo(function ConversationList({
           </div>
         ) : conversations?.length === 0 ? (
           <div className="p-8 text-center">
-            <Inbox className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+            {isTrashView
+              ? <Trash2 className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+              : <Inbox className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-3" />
+            }
             <p className="text-slate-500 dark:text-slate-400">
-              {statusFilter === 'open'
-                ? 'Nenhuma conversa aberta'
-                : 'Nenhuma conversa resolvida'}
+              {isTrashView
+                ? 'Lixeira vazia'
+                : statusFilter === 'open'
+                  ? 'Nenhuma conversa aberta'
+                  : 'Nenhuma conversa resolvida'}
             </p>
           </div>
         ) : (
           conversations?.map((conversation) => (
-            <ConversationItemWrapper
-              key={conversation.id}
-              conversation={conversation}
-              isSelected={conversation.id === selectedId}
-              onSelect={onSelect}
-              presenceStatus={conversation.contactId && getPresence ? getPresence(conversation.contactId) : undefined}
-            />
+            <div key={conversation.id} className="relative group">
+              <ConversationItemWrapper
+                conversation={conversation}
+                isSelected={conversation.id === selectedId}
+                onSelect={onSelect}
+                presenceStatus={conversation.contactId && getPresence ? getPresence(conversation.contactId) : undefined}
+              />
+              {isTrashView && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); restoreConversation.mutate(conversation.id); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 px-2 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 rounded-md hover:bg-emerald-100 dark:hover:bg-emerald-900/50"
+                  title="Restaurar conversa"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  Restaurar
+                </button>
+              )}
+            </div>
           ))
         )}
       </div>

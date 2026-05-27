@@ -444,6 +444,7 @@ export interface ConversationFilters {
   search?: string;
   sortBy?: 'lastMessageAt' | 'createdAt' | 'unreadCount';
   sortOrder?: 'asc' | 'desc';
+  deleted?: boolean;
 }
 
 // =============================================================================
