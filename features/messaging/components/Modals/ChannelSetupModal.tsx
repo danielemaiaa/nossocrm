@@ -130,6 +130,14 @@ const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
         required: true,
       },
       {
+        key: 'appSecret',
+        label: 'App Secret',
+        type: 'password',
+        placeholder: 'Seu App Secret do Meta',
+        required: false,
+        helpText: 'Encontrado em Configurações > Básico no Meta for Developers. Necessário para verificar assinaturas de webhook.',
+      },
+      {
         key: 'verifyToken',
         label: 'Verify Token (Webhook)',
         type: 'text',
