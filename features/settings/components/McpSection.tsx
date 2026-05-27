@@ -146,10 +146,16 @@ export const McpSection: React.FC = () => {
         return;
       }
 
+      // Carry the session ID returned by the server (MCP Streamable HTTP spec).
+      const sessionId = initRes.headers.get('mcp-session-id');
+      const sessionHeaders: Record<string, string> = sessionId
+        ? { ...commonHeaders, 'Mcp-Session-Id': sessionId }
+        : commonHeaders;
+
       // 2) tools/list
       const listRes = await fetch(endpointPath, {
         method: 'POST',
-        headers: commonHeaders,
+        headers: sessionHeaders,
         body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }),
       });
       const listParsed = await parseJsonSafe(listRes);
