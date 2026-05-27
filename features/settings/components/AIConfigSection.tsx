@@ -137,7 +137,7 @@ export const AIConfigSection: React.FC = () => {
         setIsValidating(true);
         setValidationError(null);
 
-        const result = await validateApiKey(localApiKey, aiModel);
+        const result = await validateApiKey(localApiKey, aiModel || 'gemini-2.0-flash');
 
         setIsValidating(false);
 
