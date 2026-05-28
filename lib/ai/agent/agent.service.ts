@@ -633,6 +633,22 @@ export async function processIncomingMessage(
       await resetCircuitBreaker(supabase, conversationId);
     }
 
+    // Handoff por intenção: se a Ana já sinalizou na resposta que vai passar para
+    // a equipe (atrito, frustração, insistência de preço), dispara o handoff real
+    // (marca pendente + notifica Telegram/Realtime) sem reenviar mensagem.
+    if (responseSignalsHandoff(decision.response)) {
+      await handleHandoff(
+        supabase,
+        conversationId,
+        organizationId,
+        context,
+        'IA sinalizou handoff na resposta (atrito/pedido)',
+        incomingMessage,
+        params.simulationMode,
+        true, // skipBridge — a própria resposta da Ana já foi a ponte
+      );
+    }
+
     // Log structured success for response
     logAIResponse(
       organizationId,
@@ -1031,6 +1047,7 @@ async function handleHandoff(
   reason: string,
   lastMessage?: string,
   simulationMode?: boolean,
+  skipBridge?: boolean,
 ): Promise<AgentDecision> {
   const now = new Date().toISOString();
 
@@ -1042,7 +1059,7 @@ async function handleHandoff(
     .single();
 
   const existingMetadata = (existing?.metadata as Record<string, unknown>) ?? {};
-  // Só envia a frase-ponte no primeiro handoff, para não repetir a cada mensagem.
+  // Handoff já sinalizado antes nesta conversa: não repetir notificação nem ponte.
   const alreadyPending = existingMetadata.ai_handoff_pending === true;
 
   // Atualizar conversa para marcar handoff pendente
@@ -1057,6 +1074,12 @@ async function handleHandoff(
       },
     })
     .eq('id', conversationId);
+
+  // Se já estava pendente, mantém o estado mas não repete notificação (Telegram/
+  // Realtime) nem frase-ponte, para não gerar spam a cada mensagem subsequente.
+  if (alreadyPending) {
+    return { action: 'handoff', reason };
+  }
 
   // Log handoff as deal activity
   if (context.deal?.id) {
@@ -1133,8 +1156,9 @@ async function handleHandoff(
   }
 
   // Frase-ponte: avisa o lead que será atendido por uma pessoa, para não ficar no vácuo.
+  // skipBridge=true quando a própria resposta da Ana já foi a ponte (handoff por intenção).
   let bridgeResponse: string | undefined;
-  if (!alreadyPending) {
+  if (!skipBridge) {
     bridgeResponse = 'Vou te conectar com nossa equipe pra te dar a melhor orientação, já te respondem por aqui 🙂';
     await sendAIResponse({ supabase, conversationId, response: bridgeResponse, simulationMode });
   }
@@ -1227,6 +1251,24 @@ function checkHandoffKeywords(message: string, keywords: string[]): string | nul
     }
   }
   return null;
+}
+
+/**
+ * Padrões que indicam que a própria resposta da IA já está escalando para humano
+ * (ex: "vou te conectar com nossa equipe"). A persona instrui a Ana a usar essa
+ * frase ao detectar atrito/frustração/insistência de preço.
+ */
+const HANDOFF_INTENT_PATTERNS: RegExp[] = [
+  /\bvou (te |lhe )?(conectar|passar|transferir|encaminhar)\b/iu,
+  /\bvou (chamar|acionar|avisar)\b[^.!?]{0,40}\b(equipe|time|consultor|atendente|pessoa|algu[ée]m)\b/iu,
+];
+
+/**
+ * True quando a resposta da IA sinaliza handoff. Permite disparar o handoff real
+ * (notificação) por atrito, sem depender de keyword na mensagem do lead.
+ */
+function responseSignalsHandoff(response: string): boolean {
+  return HANDOFF_INTENT_PATTERNS.some((p) => p.test(response));
 }
 
 function isBusinessHours(hours?: { start: string; end: string; timezone: string; daysOfWeek?: number[] }): boolean {
