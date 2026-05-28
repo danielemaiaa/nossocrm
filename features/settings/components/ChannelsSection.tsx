@@ -726,14 +726,17 @@ export function ChannelsSection() {
     const existingRule = getRoutingRuleForChannel(channelId);
 
     try {
-      if (existingRule) {
-        // Update existing rule
+      if (!boardId) {
+        // Disabling auto-deal: delete the rule entirely to avoid orphaned rows
+        if (existingRule) {
+          await deleteRoutingMutation.mutateAsync(existingRule.id);
+        }
+      } else if (existingRule) {
         await updateRoutingMutation.mutateAsync({
           ruleId: existingRule.id,
           input: { boardId, stageId, enabled },
         });
-      } else if (boardId && stageId) {
-        // Create new rule
+      } else if (stageId) {
         await createRoutingMutation.mutateAsync({
           channelId,
           boardId,
@@ -741,7 +744,6 @@ export function ChannelsSection() {
           enabled: true,
         });
       }
-      // No toast for inline changes - feels smoother
     } catch {
       addToast('Erro ao salvar configuração de entrada de leads', 'error');
     }
