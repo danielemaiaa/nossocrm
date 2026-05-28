@@ -15,7 +15,7 @@ Os 8 gaps reais encontrados, em ordem de impacto:
 | # | Gap | Onde | Precisa de código? |
 |---|-----|------|--------------------|
 | 1 | Transparência híbrida bloqueada (3 camadas dizem "nunca revele que é IA") | `SECURITY_PREAMBLE` + `output-validator` + `persona_prompt` | **Sim** (fork + deploy) |
-| 2 | `handoff_keywords` vazio → handoff por palavra-chave nunca dispara | `board_ai_config` | Não (config) |
+| 2 | `handoff_keywords` só com 3 defaults genéricos (lidos de `stage_ai_config.settings`, por etapa) | `stage_ai_config.settings` | Não (config) |
 | 3 | `advancement_criteria` genéricos e idênticos nas 4 etapas | `stage_ai_config` | Não (config) |
 | 4 | No handoff, o lead fica no vácuo (ninguém avisa ele) | `handleHandoff` | **Sim** (melhoria) |
 | 5 | Sem tratamento de áudio/imagem (lead manda áudio, Ana trava) | `persona_prompt` | Não (config) |
@@ -98,7 +98,7 @@ Mapa de ponta a ponta. As 4 primeiras fases são as **etapas vivas hoje**; as 4 
 
 Sem mudar o código, a Ana é **proibida** de responder com honestidade a "você é um robô?". Híbrido = mudança de código (seção 7).
 
-**Gap 2 — `handoff_keywords` vazio.** O código (`agent.service.ts:480`) checa palavras-chave de handoff a cada mensagem, mas a lista está `[]`. Resultado: o handoff determinístico por palavra nunca dispara. Só dispara por limite de mensagens (10) ou `notify_team` de etapa.
+**Gap 2 — `handoff_keywords` só com defaults genéricos, e no lugar certo é fácil errar.** O código (`agent.service.ts:480`) lê `config.settings.handoff_keywords`, que vem da coluna JSONB `stage_ai_config.settings` (por etapa) via `getStageConfig` (`adaptive-context.ts:390`) — **não** de `board_ai_config.handoff_keywords` (essa coluna existe mas não é lida pelo fluxo de auto-resposta). Hoje cada etapa tem só `["falar com humano","atendente","pessoa real"]`. Variações comuns ("falar com uma pessoa", "quero reclamar", "advogado") não disparam handoff. O match é substring case-insensitive (`checkHandoffKeywords`, `agent.service.ts:1222`).
 
 **Gap 3 — `advancement_criteria` genéricos e idênticos.** As 4 etapas têm os mesmos critérios: `["Lead demonstrou interesse", "Conversa iniciada com sucesso"]`. O `stage-evaluator` usa esses critérios (via LLM) para decidir avanço de etapa e calcular a confiança que aciona o HITL. Critérios vagos = avanços ruins e HITL pouco confiável.
 
@@ -188,10 +188,12 @@ LIMITES DO AGENTE:
 — Acionar handoff humano se: o lead pedir explicitamente uma pessoa, demonstrar frustração, tocar em preço/proposta/negociação, ou fizer perguntas técnicas que exijam análise profunda do negócio.
 ```
 
-### 5.4 `board_ai_config.handoff_keywords` (novo)
+### 5.4 `stage_ai_config.settings.handoff_keywords` (por etapa — local ATIVO)
+
+> Aplicado nas 4 etapas via merge no JSONB `settings`. Este é o campo realmente lido pelo agente (não `board_ai_config.handoff_keywords`).
 
 ```
-["falar com humano", "falar com uma pessoa", "quero uma pessoa", "atendente", "me transfere", "falar com alguém", "reclamação", "quero reclamar", "cancelar", "advogado", "processo", "procon"]
+["falar com humano", "falar com uma pessoa", "falar com alguém", "quero uma pessoa", "pessoa real", "pessoa de verdade", "atendente", "me transfere", "reclamação", "quero reclamar", "cancelar", "advogado", "processo", "procon"]
 ```
 
 > Nota: preço/proposta NÃO entram como keyword de handoff de propósito — a Ana primeiro faz a deflexão graciosa ("o investimento varia, é pra isso que serve o diagnóstico") e conduz para o agendamento. O handoff por preço acontece quando o lead insiste, o que a Ana detecta pelo contexto e pela frase-ponte.
