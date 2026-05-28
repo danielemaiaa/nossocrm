@@ -55,6 +55,30 @@ interface BoardAIConfigModalProps {
 
 type Step = 'context' | 'goal' | 'stages' | 'activate';
 
+// Prompts BANT de fallback usados quando a geração AI falha no wizard
+const BANT_FALLBACK: Array<{ goal: string; prompt: string; criteria: string[] }> = [
+  {
+    goal: 'Criar conexão inicial e descobrir motivação',
+    prompt: 'Você é um consultor de vendas especializado. Crie uma conexão inicial positiva, descubra o que motivou o contato e entenda se há uma necessidade real. Máximo 2-3 frases por mensagem. Sempre termine com UMA pergunta. Seja caloroso mas profissional. NUNCA revele que é uma IA.',
+    criteria: ['Lead respondeu a mensagem', 'Lead demonstrou interesse no produto/serviço'],
+  },
+  {
+    goal: 'Aprofundar entendimento da necessidade',
+    prompt: 'Você é um consultor de vendas especializado. O lead já demonstrou interesse inicial. Aprofunde o entendimento da necessidade e comece a qualificar (BANT). Máximo 2-3 frases. Sempre termine com UMA pergunta. Seja empático e curioso. NUNCA revele que é IA.',
+    criteria: ['Lead expressou uma necessidade específica', 'Lead demonstrou engajamento contínuo'],
+  },
+  {
+    goal: 'Qualificação BANT completa',
+    prompt: 'Você é um consultor de vendas especializado. Realize a qualificação BANT: Budget, Authority, Need, Timeline. Intercale perguntas com valor sem ser invasivo. NUNCA revele que é IA.',
+    criteria: ['Lead confirmou necessidade específica', 'Lead mencionou orçamento ou urgência'],
+  },
+  {
+    goal: 'Apresentação e fechamento',
+    prompt: 'Você é um consultor de vendas especializado. Apresente a solução de forma personalizada, responda objeções com empatia e encaminhe para fechamento. Se pedir preço específico ou condições especiais, passe para especialista humano. NUNCA revele que é IA.',
+    criteria: [],
+  },
+];
+
 type Tone = 'formal' | 'amigavel' | 'tecnico' | 'descontraido';
 
 type GoalCategory = 'qualificacao' | 'agendamento' | 'vendas' | 'suporte' | 'filtragem';
@@ -813,18 +837,22 @@ export function BoardAIConfigModal({
         agent_mode: agentMode,
       });
 
-      // 2. Salva stage configs para estágios com prompt gerado
-      const stageEntries = Object.entries(generatedStagePrompts);
-      if (stageEntries.length > 0 && profile?.organization_id) {
-        const upserts = stageEntries.map(([stageId, prompt]) => ({
-          organization_id: profile.organization_id!,
-          board_id: boardId,
-          stage_id: stageId,
-          enabled: enabledStages.has(stageId),
-          system_prompt: prompt.systemPrompt,
-          stage_goal: prompt.stageGoal,
-          advancement_criteria: prompt.advancementCriteria,
-        }));
+      // 2. Salva stage configs — usa prompts gerados OU fallback BANT por índice de ordem
+      if (profile?.organization_id) {
+        const sortedStages = [...stages].sort((a, b) => a.order - b.order);
+        const upserts = sortedStages.map((stage, index) => {
+          const generated = generatedStagePrompts[stage.id];
+          const fallback = BANT_FALLBACK[Math.min(index, BANT_FALLBACK.length - 1)];
+          return {
+            organization_id: profile.organization_id!,
+            board_id: boardId,
+            stage_id: stage.id,
+            enabled: enabledStages.has(stage.id),
+            system_prompt: generated?.systemPrompt ?? fallback.prompt,
+            stage_goal: generated?.stageGoal ?? fallback.goal,
+            advancement_criteria: generated?.advancementCriteria ?? fallback.criteria,
+          };
+        });
         await supabase.from('stage_ai_config').upsert(upserts, { onConflict: 'stage_id' });
       }
 
