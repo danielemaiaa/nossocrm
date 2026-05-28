@@ -76,12 +76,8 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (messageId && !uuidRegex.test(messageId)) {
-    return NextResponse.json(
-      { error: 'Invalid UUID format for messageId' },
-      { status: 400 }
-    );
-  }
+  // messageId is optional; if provided but not a UUID (e.g. Meta wamid), treat as absent
+  const resolvedMessageId = messageId && uuidRegex.test(messageId) ? messageId : undefined;
 
   // Create Supabase client with service role
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -102,7 +98,7 @@ export async function POST(request: NextRequest) {
     conversationId,
     organizationId,
     incomingMessage: messageText,
-    messageId,
+    messageId: resolvedMessageId,
   }).catch((error) => {
     console.error('[AI Process] Background processing error:', error);
   });
