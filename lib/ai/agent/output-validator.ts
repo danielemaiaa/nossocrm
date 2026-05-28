@@ -34,11 +34,10 @@ const LEAKAGE_PATTERNS: Array<[RegExp, string]> = [
   [/my\s+(instructions?|rules?|directives?|prompt)\s+(is|are|says?|tells?)/iu, 'leaked_instructions_en'],
   [/fui\s+(programado|configurado|instruído)\s+(para|a)\s/iu, 'revealed_programming_pt'],
   [/i\s+(was|am)\s+(programmed|configured|instructed)\s+to\s/iu, 'revealed_programming_en'],
-  [/como\s+(uma?\s+)?(IA|inteligência\s+artificial|modelo\s+de\s+linguagem|LLM|chatbot|assistente\s+virtual)/iu, 'revealed_ai_identity_pt'],
-  [/as\s+an?\s+(AI|artificial\s+intelligence|language\s+model|LLM|chatbot|virtual\s+assistant)/iu, 'revealed_ai_identity_en'],
-  [/sou\s+(uma?\s+)?(IA|inteligência\s+artificial|robô|bot|modelo|programa)/iu, 'declared_ai_pt'],
-  [/i\s+am\s+an?\s+(AI|artificial\s+intelligence|robot|bot|model|program)/iu, 'declared_ai_en'],
-  [/não\s+(sou|tenho)\s+(humano|pessoa|sentimentos)/iu, 'denied_humanity_pt'],
+  // Transparência híbrida: admitir ser uma assistente virtual quando perguntado é
+  // permitido (controlado pelo persona_prompt). Por isso NÃO bloqueamos aqui frases
+  // como "sou a assistente virtual". Continuamos bloqueando vazamento de instruções/
+  // programação acima e dump de regras abaixo.
 
   // Prompt/instruction dump (detects blocks of rules being repeated)
   [/REGRA[S]?\s+(IMPORTANTE|DE\s+SEGURANÇA)[S]?.*:/iu, 'rules_dump_pt'],

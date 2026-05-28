@@ -112,21 +112,26 @@ describe('validateAIOutput — limite de tamanho', () => {
 // ---------------------------------------------------------------------------
 // Vazamento de system prompt / identidade de IA
 // ---------------------------------------------------------------------------
-describe('validateAIOutput — vazamento de system prompt', () => {
-  it('rejeita quando LLM revela identidade como IA (PT)', () => {
+describe('validateAIOutput — transparência híbrida e vazamento de system prompt', () => {
+  it('permite admitir ser assistente virtual quando perguntada (PT)', () => {
     const result = validateAIOutput(
-      'Como uma IA, posso te ajudar com isso!',
+      'Sou a assistente virtual da DMA, mas estou aqui pra te ajudar de verdade!',
       EMPTY_CONTEXT
     )
-    expect(result.safe).toBe(false)
-    expect(result.issues.some(i => i.includes('revealed_ai_identity_pt'))).toBe(true)
-    expect(result.response).toBe(FALLBACK)
+    expect(result.safe).toBe(true)
   })
 
-  it('rejeita quando LLM declara ser IA (PT)', () => {
-    const result = validateAIOutput('Sou um robô projetado para ajudar vendas.', EMPTY_CONTEXT)
-    expect(result.safe).toBe(false)
-    expect(result.issues.some(i => i.includes('declared_ai_pt'))).toBe(true)
+  it('permite confirmar com honestidade que é uma IA (PT)', () => {
+    const result = validateAIOutput('Sou uma IA, sim, mas posso te ajudar com isso.', EMPTY_CONTEXT)
+    expect(result.safe).toBe(true)
+  })
+
+  it('permite admitir ser assistente virtual (EN)', () => {
+    const result = validateAIOutput(
+      'As a virtual assistant, I can help you with that!',
+      EMPTY_CONTEXT
+    )
+    expect(result.safe).toBe(true)
   })
 
   it('rejeita quando LLM revela que foi programado', () => {
@@ -145,15 +150,6 @@ describe('validateAIOutput — vazamento de system prompt', () => {
     )
     expect(result.safe).toBe(false)
     expect(result.issues.some(i => i.includes('rules_dump_pt'))).toBe(true)
-  })
-
-  it('rejeita quando LLM revela identidade como AI (EN)', () => {
-    const result = validateAIOutput(
-      'As an AI assistant, I can help you with that!',
-      EMPTY_CONTEXT
-    )
-    expect(result.safe).toBe(false)
-    expect(result.issues.some(i => i.includes('revealed_ai_identity_en'))).toBe(true)
   })
 })
 
