@@ -26,6 +26,7 @@ import { useDealsView, useUpdateDeal as useUpdateDealMut } from '@/lib/query/hoo
 import { useContacts } from '@/lib/query/hooks/useContactsQuery';
 import { useBoards } from '@/lib/query/hooks/useBoardsQuery';
 import { useActivities, useCreateActivity } from '@/lib/query/hooks/useActivitiesQuery';
+import { useConversationByDeal } from '@/lib/query/hooks/useMessagingConversationsQuery';
 import { useMoveDealSimple } from '@/lib/query/hooks';
 import { normalizePhoneE164 } from '@/lib/phone';
 
@@ -684,6 +685,9 @@ export default function DealCockpitClient({ dealId }: { dealId?: string }) {
     if (dealId) return dealsById.get(dealId) ?? null;
     return deals[0] ?? null;
   }, [deals, dealsById, dealId]);
+
+  // Conversa do inbox vinculada a este deal (via messaging_conversations.metadata.deal_id)
+  const { data: dealConversation } = useConversationByDeal(selectedDeal?.id);
 
   const sortedDeals = useMemo(() => {
     return (deals ?? []).slice().sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''));
@@ -1626,6 +1630,19 @@ export default function DealCockpitClient({ dealId }: { dealId?: string }) {
                   <ActivityIcon className="h-4 w-4" />
                   Executar agora
                 </button>
+
+                {dealConversation && (
+                  <button
+                    type="button"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2.5 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/15"
+                    title="Abrir a conversa deste lead no inbox"
+                    aria-label="Ver conversa no inbox"
+                    onClick={() => router.push(`/messaging?id=${dealConversation.id}`)}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    Ver conversa no inbox
+                  </button>
+                )}
 
                 <div className="grid w-full grid-cols-5 gap-2">
                   <button

@@ -194,6 +194,37 @@ export function useConversationsByContact(contactId: string | undefined) {
 }
 
 /**
+ * Fetch the conversation linked to a deal (via messaging_conversations.metadata.deal_id).
+ * Returns the most recently active conversation for that deal, or null if none.
+ */
+export function useConversationByDeal(dealId: string | undefined) {
+  const { user, loading: authLoading } = useAuth();
+
+  return useQuery({
+    queryKey: queryKeys.messagingConversations.byDeal(dealId || ''),
+    queryFn: async (): Promise<MessagingConversation | null> => {
+      if (!dealId) return null;
+
+      const supabase = getClient();
+
+      const { data, error } = await supabase
+        .from('messaging_conversations')
+        .select('*')
+        .eq('metadata->>deal_id', dealId)
+        .is('deleted_at', null)
+        .order('last_message_at', { ascending: false, nullsFirst: false })
+        .limit(1);
+
+      if (error) throw error;
+      const row = (data || [])[0];
+      return row ? transformConversation(row) : null;
+    },
+    staleTime: 30 * 1000,
+    enabled: !authLoading && !!user && !!dealId,
+  });
+}
+
+/**
  * Fetch a single conversation by ID with full details.
  */
 export function useMessagingConversation(conversationId: string | undefined) {

@@ -96,6 +96,8 @@ export const queryKeys = {
         byUnit: (unitId: string) => [...base.all, 'byUnit', unitId] as const,
         /** Conversations for a specific contact */
         byContact: (contactId: string) => [...base.all, 'byContact', contactId] as const,
+        /** Conversation linked to a specific deal (via metadata.deal_id) */
+        byDeal: (dealId: string) => [...base.all, 'byDeal', dealId] as const,
         /** Unread count */
         unreadCount: () => [...base.all, 'unreadCount'] as const,
     })),
