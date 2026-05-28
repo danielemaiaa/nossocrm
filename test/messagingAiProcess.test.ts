@@ -236,14 +236,15 @@ describe('POST /api/messaging/ai/process', () => {
     expect(body.error).toMatch(/UUID/i)
   })
 
-  it('retorna 400 quando messageId é fornecido mas não é UUID válido', async () => {
-    // Arrange
+  it('aceita messageId não-UUID (ex: wamid da Meta) tratando-o como ausente', async () => {
+    // Arrange — a Meta envia IDs no formato "wamid.*", que não são UUID.
+    // A rota deve processar normalmente, coagindo messageId para undefined.
     const req = makeRequest(
       {
         conversationId: CONV_ID,
         organizationId: ORG_ID,
         messageText: 'Oi',
-        messageId: 'not-a-uuid',
+        messageId: 'wamid.HBgNNTUxMTk5OTk5OTk5ORUCABIYEjEy',
       },
       withSecret()
     )
@@ -252,9 +253,12 @@ describe('POST /api/messaging/ai/process', () => {
     const res = await POST(req)
     const body = await res.json()
 
-    // Assert
-    expect(res.status).toBe(400)
-    expect(body.error).toMatch(/UUID/i)
+    // Assert — não rejeita; processa tratando o messageId não-UUID como ausente
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ received: true })
+    expect(processIncomingMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ messageId: undefined })
+    )
   })
 
   it('retorna 400 quando body é JSON inválido', async () => {
