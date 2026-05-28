@@ -17,7 +17,7 @@ Os 8 gaps reais encontrados, em ordem de impacto:
 | 1 | Transparência híbrida bloqueada (3 camadas dizem "nunca revele que é IA") | `SECURITY_PREAMBLE` + `output-validator` + `persona_prompt` | **Sim** (fork + deploy) |
 | 2 | `handoff_keywords` só com 3 defaults genéricos (lidos de `stage_ai_config.settings`, por etapa) | `stage_ai_config.settings` | Não (config) |
 | 3 | `advancement_criteria` genéricos e idênticos nas 4 etapas | `stage_ai_config` | Não (config) |
-| 4 | No handoff, o lead fica no vácuo (ninguém avisa ele) | `handleHandoff` | **Sim** (melhoria) |
+| 4 | No handoff, o lead ficava no vácuo + atrito não escalava de verdade | `handleHandoff` + handoff por intenção | **Feito** (deployado 28/05) |
 | 5 | Sem tratamento de áudio/imagem (lead manda áudio, Ana trava) | `persona_prompt` | Não (config) |
 | 6 | Sem desqualificação graciosa de quem não é fit | `persona_prompt` | Não (config) |
 | 7 | Sem reengajamento de quem sumiu (follow-up de silêncio) | blueprint | Sim (fase 2) |
@@ -267,15 +267,22 @@ Três edições pequenas no fork `danielemaiaa/nossocrm`, deploy via Vercel:
 
 > **Importante:** a persona (5.1) e a mudança de código têm que ir **juntas**. Se a persona pedir honestidade mas o código continuar bloqueando, a Ana tenta admitir e o validador substitui pela mensagem genérica — pior dos dois mundos.
 
-### 7.3 Melhoria de código do handoff (gap 4)
-No `handleHandoff`, retornar também uma `response` curta para o lead (frase-ponte), por exemplo: *"Vou te conectar com nossa equipe pra te dar a melhor orientação — já te respondem por aqui, tá? 🙂"*, e enviá-la antes de marcar o handoff. Assim ninguém fica no vácuo.
+### 7.3 Handoff implementado (gap 4) — frase-ponte + handoff por intenção
+
+Implementado e deployado em 2026-05-28:
+
+1. **Frase-ponte:** `handleHandoff` envia ao lead *"Vou te conectar com nossa equipe pra te dar a melhor orientação, já te respondem por aqui 🙂"* nos handoffs determinísticos (keyword/limite/notify_team). Ninguém fica no vácuo.
+2. **Handoff por intenção (atrito):** após cada resposta, `responseSignalsHandoff()` detecta se a própria Ana sinalizou escala ("vou te conectar/passar/transferir/encaminhar"). Se sim, dispara `handleHandoff` de verdade (marca `ai_handoff_pending` + notifica Telegram/Realtime) **sem reenviar mensagem** (`skipBridge`). Pega frustração/insistência sem depender de keyword no input — a persona instrui a Ana a usar a frase canônica "Vou te conectar com nossa equipe" ao escalar.
+3. **Sem spam:** notificação e ponte só no **primeiro** handoff da conversa (`alreadyPending` faz early-return).
+4. **Calibragem preço vs atrito:** preço neutro → Ana deflete e qualifica (não escala); atrito real ou insistência → escala na hora. Validado no sandbox.
 
 ### 7.4 Matriz de handoff (quem sai de cena quando)
 | Gatilho | Detecção | Ação |
 |---------|----------|------|
-| Lead pede pessoa | `handoff_keywords` | Frase-ponte + notifica equipe |
-| Frustração | LLM/contexto | Frase-ponte + notifica equipe |
-| Preço/proposta (insistente) | Contexto (prompt) | Deflexão → se insistir, frase-ponte |
+| Lead pede pessoa | `handoff_keywords` (14 por etapa) | Frase-ponte + notifica equipe |
+| Frustração / irritação | Intenção na resposta (`responseSignalsHandoff`) | Escala real + notifica (sem reenviar) |
+| Preço/proposta neutro | Persona | Deflexão graciosa + qualifica |
+| Preço/proposta insistente | Intenção na resposta | Escala real + notifica |
 | 10 mensagens sem avanço | `max_messages_before_handoff` | Frase-ponte + notifica equipe |
 | Reclamação/risco legal | `handoff_keywords` | Frase-ponte + notifica equipe |
 
