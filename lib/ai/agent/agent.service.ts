@@ -816,6 +816,12 @@ function buildSystemPrompt(
   // board_ai_config.persona_prompt tem prioridade sobre org base prompt e default
   const basePrompt = orgBasePrompt || DEFAULT_BASE_SYSTEM_PROMPT;
 
+  // Identidade do agente — o nome próprio do atendente. Sem isto, ao se
+  // apresentar o modelo rouba o único nome disponível no contexto (o do lead).
+  const identitySection = boardAIConfig?.agent_name
+    ? `\n## Sua Identidade\nSeu nome é ${boardAIConfig.agent_name}. Use SEMPRE este nome ao se apresentar. O nome que aparece em "Sobre o Lead" é o do CLIENTE — nunca se apresente com o nome do lead.\n`
+    : '';
+
   // Seção do agente goal-oriented (objetivo e contexto do board)
   const goalSection = boardAIConfig?.agent_goal
     ? `\n## Objetivo do Agente\n${boardAIConfig.agent_goal}\n`
@@ -833,7 +839,7 @@ function buildSystemPrompt(
     return `${SECURITY_PREAMBLE}
 
 ${learnedPrompt}
-${businessSection}${goalSection}
+${identitySection}${businessSection}${goalSection}
 ## Contexto da Organização
 Você está representando: ${context.organization.name}
 
@@ -863,7 +869,7 @@ ${config.advancement_criteria.length > 0 ? `PARA AVANÇAR O LEAD, VOCÊ PRECISA:
   return `${SECURITY_PREAMBLE}
 
 ${basePrompt}
-${businessSection}${goalSection}
+${identitySection}${businessSection}${goalSection}
 ${stageSection}
 
 INSTRUÇÕES ESPECÍFICAS:

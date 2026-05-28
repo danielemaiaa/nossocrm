@@ -332,4 +332,23 @@ describe('Goal-Oriented Agent', () => {
       expect(result.decision.action).toBe('responded')
     })
   })
+
+  describe('identidade do agente (agent_name no system prompt)', () => {
+    it('injeta o agent_name e a trava anti-roubo do nome do lead', async () => {
+      const { generateWithFailover } = await import('@/lib/ai/agent/provider-failover')
+      const supabase = buildSupabaseMock({ agentMode: 'respond' })
+      await processIncomingMessage({
+        supabase,
+        conversationId: CONV_ID,
+        organizationId: ORG_ID,
+        incomingMessage: 'Olá',
+        simulationMode: true,
+      })
+      expect(generateWithFailover).toHaveBeenCalled()
+      const system = vi.mocked(generateWithFailover).mock.calls[0][0].system as string
+      expect(system).toContain('Sua Identidade')
+      expect(system).toContain('Assistente')
+      expect(system).toContain('nunca se apresente com o nome do lead')
+    })
+  })
 })
