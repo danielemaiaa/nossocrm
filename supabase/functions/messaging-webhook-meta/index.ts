@@ -297,11 +297,10 @@ async function verifySignature(
   payload: string,
   signature: string,
   appSecret: string
-): Promise<{ valid: boolean; computedHash: string; expectedHash: string }> {
-  // Signature format: sha256=<hash>
+): Promise<boolean> {
   const [algorithm, expectedHash] = signature.split("=");
   if (algorithm !== "sha256" || !expectedHash) {
-    return { valid: false, computedHash: "", expectedHash: expectedHash || "" };
+    return false;
   }
 
   try {
@@ -321,17 +320,15 @@ async function verifySignature(
     const hashArray = Array.from(new Uint8Array(signatureBuffer));
     const computedHash = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 
-    if (computedHash.length !== expectedHash.length) {
-      return { valid: false, computedHash, expectedHash };
-    }
+    if (computedHash.length !== expectedHash.length) return false;
     let mismatch = 0;
     for (let i = 0; i < computedHash.length; i++) {
       mismatch |= computedHash.charCodeAt(i) ^ expectedHash.charCodeAt(i);
     }
-    return { valid: mismatch === 0, computedHash, expectedHash };
+    return mismatch === 0;
   } catch (error) {
     console.error("Signature verification error:", error);
-    return { valid: false, computedHash: "", expectedHash: expectedHash || "" };
+    return false;
   }
 }
 
@@ -429,31 +426,12 @@ Deno.serve(async (req) => {
   // Get raw body for signature verification
   const rawBody = await req.text();
 
-  // [DEBUG] Log every POST arrival BEFORE signature check
-  // Remove after diagnosis is complete
-  const debugSignature = req.headers.get("X-Hub-Signature-256") || "none";
-  const debugBody = rawBody.slice(0, 300);
-  await supabase.from("messaging_webhook_events").insert({
-    channel_id: channelId,
-    event_type: "debug_post_received",
-    external_event_id: `debug_${Date.now()}`,
-    payload: { signature_present: debugSignature !== "none", body_preview: debugBody } as unknown as Record<string, unknown>,
-    processed: false,
-  }).then(() => {});
-
   // Verify signature - mandatory when appSecret is configured
   const appSecret = credentials?.appSecret as string | undefined;
   const signature = req.headers.get("X-Hub-Signature-256") || "";
 
   if (!appSecret) {
     console.error("[Webhook] appSecret not configured for channel — rejecting request");
-    await supabase.from("messaging_webhook_events").insert({
-      channel_id: channelId,
-      event_type: "debug_no_appsecret",
-      external_event_id: `debug_nosecret_${Date.now()}`,
-      payload: {} as Record<string, unknown>,
-      processed: false,
-    }).then(() => {});
     return new Response(JSON.stringify({ error: "Webhook not configured" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
@@ -466,26 +444,13 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json" },
     });
   }
-  const { valid: isValid, computedHash, expectedHash: receivedHash } = await verifySignature(rawBody, signature, appSecret);
+  const isValid = await verifySignature(rawBody, signature, appSecret);
   if (!isValid) {
     console.error("[Webhook] Invalid webhook signature");
-    await supabase.from("messaging_webhook_events").insert({
-      channel_id: channelId,
-      event_type: "debug_invalid_signature",
-      external_event_id: `debug_badsig_${Date.now()}`,
-      payload: {
-        computed_hash: computedHash,
-        received_hash: receivedHash,
-        appsecret_length: appSecret.length,
-        appsecret_first4: appSecret.substring(0, 4),
-        appsecret_last4: appSecret.substring(appSecret.length - 4),
-        appsecret_has_whitespace: appSecret !== appSecret.trim(),
-      } as unknown as Record<string, unknown>,
-      processed: false,
-    }).then(() => {});
-    // [DEBUG TEMP] Bypass signature for diagnosis — REMOVE before production
-    console.warn("[Webhook] Signature mismatch — bypassing for debug. computed=" + computedHash + " received=" + receivedHash);
-    // fall through intentionally
+    return new Response(JSON.stringify({ error: "Invalid signature" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   // Parse payload
