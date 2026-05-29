@@ -49,6 +49,7 @@ import {
   CHANNEL_TYPE_INFO,
 } from '@/lib/messaging/types';
 import { ChannelSetupWizard } from './ChannelSetupWizard';
+import { CommentAutoReplySection } from './CommentAutoReplySection';
 import {
   useLeadRoutingRules,
   useBoardsWithStages,
@@ -468,6 +469,11 @@ function ChannelCard({
           provider={channel.provider}
           verifyToken={(channel.settings?.verifyToken || channel.credentials?.verifyToken) as string | undefined}
         />
+
+        {/* Instagram: comment auto-reply */}
+        {channel.channelType === 'instagram' && (
+          <CommentAutoReplySection channel={channel} />
+        )}
 
         {/* Actions */}
         <div className="mt-4 flex items-center justify-between gap-2">

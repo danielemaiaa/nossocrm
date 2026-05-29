@@ -14,6 +14,7 @@
  * - POST: Header `X-Hub-Signature-256` para verificação de assinatura (opcional)
  */
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { matchCommentRule, type CommentAutoReplyConfig } from "./comment-matcher.ts";
 
 // =============================================================================
 // TYPES
@@ -34,7 +35,16 @@ interface MetaWebhookEntry {
 
 interface MetaWebhookChange {
   value: MetaWebhookValue;
-  field: "messages";
+  field: "messages" | "comments";
+}
+
+// Instagram "comments" webhook value (field === "comments")
+interface InstagramCommentValue {
+  from: { id: string; username?: string };
+  media?: { id: string; media_product_type?: string };
+  text?: string;
+  id: string;
+  parent_id?: string;
 }
 
 interface MetaWebhookValue {
@@ -463,6 +473,11 @@ Deno.serve(async (req) => {
     // ========================================================================
     // INSTAGRAM WEBHOOK HANDLER
     // ========================================================================
+    // Comments arrive in entry[].changes[] (field "comments"); DMs in messaging[]
+    const igEntry = payload.entry?.[0];
+    if (igEntry?.changes?.[0]?.field === "comments") {
+      return await handleInstagramCommentFlow(supabase, channel, channelId, payload);
+    }
     return await handleInstagramWebhookFlow(supabase, channel, channelId, payload);
   }
 
@@ -1486,6 +1501,206 @@ async function handleInstagramStatusUpdate(
   if (result?.updated) {
     console.log(`[Webhook/IG] Status updated: ${externalMessageId} → ${status}`);
   }
+}
+
+// =============================================================================
+// INSTAGRAM COMMENT → DM (Private Replies)
+// =============================================================================
+
+const META_GRAPH_VERSION = "v25.0";
+
+interface InstagramChannelCredentials {
+  pageId?: string;
+  accessToken?: string;
+  instagramAccountId?: string;
+}
+
+/**
+ * Send a private reply (DM) to an Instagram comment.
+ * Uses the Messenger Platform private-replies endpoint: the recipient is the
+ * comment_id (not an IGSID). Meta allows ONE reply per comment, within 7 days.
+ * @see https://developers.facebook.com/docs/instagram-platform/private-replies/
+ */
+async function sendInstagramPrivateReply(
+  credentials: InstagramChannelCredentials,
+  commentId: string,
+  message: string,
+): Promise<{ ok: boolean; error?: string; messageId?: string }> {
+  const senderId = credentials.pageId || credentials.instagramAccountId;
+  const accessToken = credentials.accessToken;
+  if (!senderId || !accessToken) {
+    return { ok: false, error: "Missing pageId/accessToken in channel credentials" };
+  }
+
+  const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${senderId}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      recipient: { comment_id: commentId },
+      message: { text: message },
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.error) {
+    return { ok: false, error: data?.error?.message || `HTTP ${res.status}` };
+  }
+  return { ok: true, messageId: data?.message_id };
+}
+
+/**
+ * Post a public reply under an Instagram comment (optional, for social proof).
+ * Endpoint: POST /{comment-id}/replies?message=...
+ */
+async function postInstagramCommentReply(
+  credentials: InstagramChannelCredentials,
+  commentId: string,
+  message: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const accessToken = credentials.accessToken;
+  if (!accessToken) return { ok: false, error: "Missing accessToken" };
+
+  const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${commentId}/replies`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ message }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data?.error) {
+    return { ok: false, error: data?.error?.message || `HTTP ${res.status}` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Handle an Instagram comment webhook: if the comment text matches a configured
+ * keyword rule, send a private reply (DM) to the commenter and optionally post a
+ * public reply. The follow-up conversation is created by the normal DM flow when
+ * the person answers the DM — we deliberately do NOT create a contact/deal here
+ * (the comment author id is comment-scoped, not the messaging IGSID).
+ *
+ * Config lives in channel.settings.commentAutoReply (CommentAutoReplyConfig).
+ */
+async function handleInstagramCommentFlow(
+  supabase: ReturnType<typeof createClient>,
+  channel: {
+    id: string;
+    organization_id: string;
+    credentials: Record<string, unknown>;
+    settings: Record<string, unknown>;
+  },
+  channelId: string,
+  payload: MetaCloudWebhookPayload,
+): Promise<Response> {
+  const entry = payload.entry?.[0];
+  const change = entry?.changes?.[0];
+  if (!entry || !change || change.field !== "comments") {
+    return json(200, { ok: true, ignored: true });
+  }
+
+  const value = change.value as unknown as InstagramCommentValue;
+  const commentId = value?.id;
+  const commenterId = value?.from?.id;
+  const commentText = value?.text;
+  const mediaId = value?.media?.id;
+
+  if (!commentId || !commenterId) {
+    return json(200, { ok: true, ignored: true, reason: "missing comment/sender id" });
+  }
+
+  const credentials = (channel.credentials || {}) as InstagramChannelCredentials;
+
+  // Guard against self-comments (our own replies) to avoid loops.
+  if (commenterId === entry.id || commenterId === credentials.instagramAccountId) {
+    return json(200, { ok: true, ignored: true, reason: "self comment" });
+  }
+
+  // Dedup via stable event id (Meta may redeliver the webhook).
+  const externalEventId = `ig_comment_${commentId}`;
+  const { error: eventInsertErr } = await supabase
+    .from("messaging_webhook_events")
+    .insert({
+      channel_id: channelId,
+      event_type: "comment_received",
+      external_event_id: externalEventId,
+      payload: payload as unknown as Record<string, unknown>,
+      processed: false,
+    });
+
+  if (eventInsertErr?.message?.toLowerCase().includes("duplicate")) {
+    console.log(`[Webhook/IG-Comment] Duplicate event ignored: ${externalEventId}`);
+    return json(200, { ok: true, duplicate: true, event_id: externalEventId });
+  }
+  if (eventInsertErr) {
+    console.error("[Webhook/IG-Comment] Error logging webhook event:", eventInsertErr);
+  }
+
+  const markProcessed = async (extra?: Record<string, unknown>) => {
+    await supabase
+      .from("messaging_webhook_events")
+      .update({
+        processed: true,
+        processed_at: new Date().toISOString(),
+        ...(extra || {}),
+      })
+      .eq("channel_id", channelId)
+      .eq("external_event_id", externalEventId);
+  };
+
+  // Read auto-reply config from channel settings.
+  const config = (channel.settings?.commentAutoReply || {}) as CommentAutoReplyConfig;
+  if (!config.enabled || !config.rules?.length) {
+    await markProcessed();
+    return json(200, { ok: true, matched: false, reason: "auto-reply disabled" });
+  }
+
+  if (!commentText) {
+    await markProcessed();
+    return json(200, { ok: true, matched: false, reason: "empty comment" });
+  }
+
+  const rule = matchCommentRule(commentText, config.rules, mediaId);
+  if (!rule) {
+    await markProcessed();
+    return json(200, { ok: true, matched: false });
+  }
+
+  // Send the private reply (DM). Optionally post a public reply for social proof.
+  const dmResult = await sendInstagramPrivateReply(credentials, commentId, rule.dmMessage);
+  if (!dmResult.ok) {
+    console.error(`[Webhook/IG-Comment] Private reply failed: ${dmResult.error}`);
+  } else {
+    console.log(`[Webhook/IG-Comment] Private reply sent for comment ${commentId}`);
+  }
+
+  let publicReplyOk: boolean | undefined;
+  if (rule.publicReply) {
+    const pub = await postInstagramCommentReply(credentials, commentId, rule.publicReply);
+    publicReplyOk = pub.ok;
+    if (!pub.ok) {
+      console.error(`[Webhook/IG-Comment] Public reply failed: ${pub.error}`);
+    }
+  }
+
+  await markProcessed({
+    error: dmResult.ok ? null : dmResult.error,
+  });
+
+  return json(200, {
+    ok: true,
+    matched: true,
+    dm_sent: dmResult.ok,
+    public_reply_sent: publicReplyOk,
+  });
 }
 
 async function findMessageByExternalId(

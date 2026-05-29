@@ -165,6 +165,16 @@ export interface ChannelSettings {
       end: string; // "18:00"
     }[];
   };
+  /** Instagram comment → DM auto-reply configuration */
+  commentAutoReply?: {
+    enabled?: boolean;
+    rules?: {
+      keywords: string[];
+      dmMessage: string;
+      publicReply?: string;
+      mediaId?: string;
+    }[];
+  };
   /** Provider-specific settings */
   [key: string]: unknown;
 }
