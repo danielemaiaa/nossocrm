@@ -174,13 +174,16 @@ const WEBHOOK_CONFIGS: Record<string, {
   },
 };
 
-function WebhookInfo({ channelId, provider, verifyToken }: { channelId: string; provider: string; verifyToken?: string }) {
+function WebhookInfo({ channelId, provider, verifyToken, channelType }: { channelId: string; provider: string; verifyToken?: string; channelType?: string }) {
   const { addToast } = useToast();
   const [expanded, setExpanded] = useState(false);
   const projectRef = getSupabaseProjectRef();
   const fn = WEBHOOK_FUNCTION_MAP[provider] || 'messaging-webhook-zapi';
   const webhookUrl = `https://${projectRef}.supabase.co/functions/v1/${fn}/${channelId}`;
   const config = WEBHOOK_CONFIGS[provider];
+  const extraToggles = channelType === 'instagram' && provider === 'meta-cloud'
+    ? ['Inscreva-se também no campo: comments (para auto-resposta a comentários)']
+    : [];
 
   const copyToClipboard = async (text: string, label: string) => {
     try {
@@ -280,9 +283,9 @@ function WebhookInfo({ channelId, provider, verifyToken }: { channelId: string; 
           )}
 
           {/* Toggles / extra config */}
-          {config?.toggles && config.toggles.length > 0 && (
+          {((config?.toggles && config.toggles.length > 0) || extraToggles.length > 0) && (
             <div className="bg-amber-50 dark:bg-amber-500/5 border border-amber-200 dark:border-amber-500/20 rounded-lg px-2.5 py-2 space-y-1">
-              {config.toggles.map((toggle, i) => (
+              {[...(config?.toggles ?? []), ...extraToggles].map((toggle, i) => (
                 <p key={i} className="text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                   {toggle}
@@ -468,6 +471,7 @@ function ChannelCard({
           channelId={channel.id}
           provider={channel.provider}
           verifyToken={(channel.settings?.verifyToken || channel.credentials?.verifyToken) as string | undefined}
+          channelType={channel.channelType}
         />
 
         {/* Instagram: comment auto-reply */}
