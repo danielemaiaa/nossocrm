@@ -39,6 +39,7 @@ import {
   useChannelsQuery,
   useDeleteChannelMutation,
   useToggleChannelStatusMutation,
+  useUpdateChannelMutation,
 } from '@/lib/query/hooks/useChannelsQuery';
 import { useInstanceFlagsQuery } from '@/lib/query/hooks/useInstanceFlagsQuery';
 import {
@@ -173,6 +174,150 @@ const WEBHOOK_CONFIGS: Record<string, {
     toggles: ['Selecione os eventos: email.sent, email.delivered, email.opened, email.bounced'],
   },
 };
+
+// =============================================================================
+// CHANNEL EDIT MODAL
+// =============================================================================
+
+/** Campos de credencial por provider. */
+const CREDENTIAL_FIELDS: Record<string, { key: string; label: string; placeholder: string; secret?: boolean }[]> = {
+  'meta-cloud': [
+    { key: 'accessToken',         label: 'Access Token',           placeholder: 'IGAANZCz4s6H...', secret: true },
+    { key: 'phoneNumberId',       label: 'Phone Number ID (WhatsApp)', placeholder: 'Ex: 123456789012345' },
+    { key: 'instagramAccountId',  label: 'Instagram Account ID',   placeholder: 'Ex: 17841440845221620' },
+    { key: 'wabaId',              label: 'WABA ID (WhatsApp)',      placeholder: 'Ex: 987654321098765' },
+  ],
+  'z-api': [
+    { key: 'instanceId', label: 'Instance ID',    placeholder: 'A1B2C3...' },
+    { key: 'token',      label: 'Token',           placeholder: 'Seu token Z-API', secret: true },
+    { key: 'clientToken',label: 'Client Token',    placeholder: 'Opcional', secret: true },
+  ],
+  'evolution': [
+    { key: 'instanceName', label: 'Instance Name', placeholder: 'minha-instancia' },
+    { key: 'apiKey',       label: 'API Key',        placeholder: 'Chave da Evolution API', secret: true },
+    { key: 'serverUrl',    label: 'Server URL',     placeholder: 'https://evolution.seudominio.com' },
+  ],
+  'resend': [
+    { key: 'apiKey', label: 'API Key', placeholder: 're_...', secret: true },
+    { key: 'from',   label: 'E-mail remetente', placeholder: 'noreply@seudominio.com' },
+  ],
+};
+
+function ChannelEditModal({ channel, onClose }: { channel: MessagingChannel; onClose: () => void }) {
+  const { addToast } = useToast();
+  const updateMutation = useUpdateChannelMutation();
+
+  const fields = CREDENTIAL_FIELDS[channel.provider] ?? [];
+  const [creds, setCreds] = React.useState<Record<string, string>>(() => {
+    const stored = (channel.credentials ?? {}) as Record<string, string>;
+    return Object.fromEntries(fields.map((f) => [f.key, stored[f.key] ?? '']));
+  });
+  const [name, setName] = React.useState(channel.name);
+  const [showSecrets, setShowSecrets] = React.useState<Record<string, boolean>>({});
+
+  const handleSave = async () => {
+    const filledCreds = Object.fromEntries(
+      Object.entries(creds).filter(([, v]) => v.trim() !== '')
+    );
+    try {
+      await updateMutation.mutateAsync({
+        channelId: channel.id,
+        input: {
+          name: name.trim() || channel.name,
+          credentials: { ...(channel.credentials ?? {}), ...filledCreds },
+        },
+      });
+      addToast('Canal atualizado!', 'success');
+      onClose();
+    } catch (err) {
+      addToast(err instanceof Error ? err.message : 'Erro ao salvar.', 'error');
+    }
+  };
+
+  return (
+    <Modal isOpen onClose={onClose} title={`Configurar: ${channel.name}`} size="md">
+      <div className="space-y-4">
+        {/* Nome do canal */}
+        <div className="space-y-1.5">
+          <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            Nome do canal
+          </label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-2.5 text-sm bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 dark:text-white"
+          />
+        </div>
+
+        {/* Credenciais */}
+        {fields.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              Credenciais — {channel.provider}
+            </p>
+            <p className="text-xs text-slate-400">
+              Deixe em branco os campos que não precisar alterar.
+            </p>
+            {fields.map((f) => (
+              <div key={f.key} className="space-y-1">
+                <label className="block text-xs font-medium text-slate-600 dark:text-slate-300">
+                  {f.label}
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    type={f.secret && !showSecrets[f.key] ? 'password' : 'text'}
+                    value={creds[f.key]}
+                    onChange={(e) => setCreds((p) => ({ ...p, [f.key]: e.target.value }))}
+                    placeholder={f.placeholder}
+                    className="flex-1 px-3 py-2 text-sm bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 dark:text-white font-mono"
+                  />
+                  {f.secret && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSecrets((p) => ({ ...p, [f.key]: !p[f.key] }))}
+                      className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 border border-slate-200 dark:border-white/10 rounded-lg transition-colors"
+                      title={showSecrets[f.key] ? 'Ocultar' : 'Mostrar'}
+                    >
+                      {showSecrets[f.key] ? '🙈' : '👁'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {fields.length === 0 && (
+          <p className="text-sm text-slate-400 italic">
+            Nenhum campo de credencial mapeado para o provider <strong>{channel.provider}</strong>.
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-slate-100 dark:border-white/5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10 rounded-lg transition-colors"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={updateMutation.isPending}
+            className="px-4 py-2 text-sm font-semibold bg-primary-600 hover:bg-primary-500 disabled:opacity-40 text-white rounded-lg transition-colors inline-flex items-center gap-1.5"
+          >
+            {updateMutation.isPending && (
+              <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+            )}
+            Salvar
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 function WebhookInfo({ channelId, provider, verifyToken, channelType }: { channelId: string; provider: string; verifyToken?: string; channelType?: string }) {
   const { addToast } = useToast();
@@ -875,69 +1020,13 @@ export function ChannelsSection() {
         variant="danger"
       />
 
-      {/* Edit Modal (placeholder - will be replaced by wizard) */}
-      <Modal
-        isOpen={!!channelToEdit}
-        onClose={() => setChannelToEdit(null)}
-        title={`Configurar ${channelToEdit?.name}`}
-        size="md"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            A configuração detalhada do canal será implementada no próximo passo
-            (ChannelSetupWizard).
-          </p>
-
-          {channelToEdit && (
-            <div className="p-4 rounded-xl bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/10">
-              <dl className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <dt className="text-slate-500 dark:text-slate-400">Tipo:</dt>
-                  <dd className="text-slate-900 dark:text-white font-medium">
-                    {CHANNEL_TYPE_INFO[channelToEdit.channelType]?.label}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-slate-500 dark:text-slate-400">Provider:</dt>
-                  <dd className="text-slate-900 dark:text-white font-medium">
-                    {channelToEdit.provider}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-slate-500 dark:text-slate-400">Identificador:</dt>
-                  <dd className="text-slate-900 dark:text-white font-medium">
-                    {channelToEdit.externalIdentifier}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-slate-500 dark:text-slate-400">Unidade:</dt>
-                  <dd className="text-slate-900 dark:text-white font-medium flex items-center gap-1.5">
-                    <Building2 className="w-3.5 h-3.5 text-slate-400" />
-                    {channelToEdit.businessUnitName || 'Não definida'}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-slate-500 dark:text-slate-400">Status:</dt>
-                  <dd className="text-slate-900 dark:text-white font-medium">
-                    {CHANNEL_STATUS_LABELS[channelToEdit.status]}
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          )}
-
-          <div className="flex justify-end pt-4">
-            <button
-              onClick={() => setChannelToEdit(null)}
-              className="px-4 py-2 rounded-lg text-sm font-semibold
-                text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10
-                transition-colors"
-            >
-              Fechar
-            </button>
-          </div>
-        </div>
-      </Modal>
+      {/* Edit Modal */}
+      {channelToEdit && (
+        <ChannelEditModal
+          channel={channelToEdit}
+          onClose={() => setChannelToEdit(null)}
+        />
+      )}
     </SettingsSection>
   );
 }
