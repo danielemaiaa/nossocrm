@@ -175,7 +175,30 @@ export function useUpdateChannelMutation() {
       channelId: string;
       input: UpdateChannelInput;
     }): Promise<MessagingChannel> => {
-      const dbData = transformChannelToDb(input);
+      // Merge credentials and settings with existing values to avoid wiping
+      // fields that weren't included in the partial update (the listing API
+      // hides credentials, so the client doesn't have the full object).
+      const needsMerge = input.credentials !== undefined || input.settings !== undefined;
+      let mergedInput = input;
+      if (needsMerge) {
+        const { data: current, error: fetchErr } = await supabase
+          .from('messaging_channels')
+          .select('credentials, settings')
+          .eq('id', channelId)
+          .maybeSingle();
+        if (fetchErr) throw fetchErr;
+        mergedInput = {
+          ...input,
+          ...(input.credentials !== undefined
+            ? { credentials: { ...(current?.credentials || {}), ...input.credentials } }
+            : {}),
+          ...(input.settings !== undefined
+            ? { settings: { ...(current?.settings || {}), ...input.settings } }
+            : {}),
+        };
+      }
+
+      const dbData = transformChannelToDb(mergedInput);
 
       const { data, error } = await supabase
         .from('messaging_channels')

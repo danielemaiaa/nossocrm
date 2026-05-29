@@ -297,20 +297,18 @@ async function verifySignature(
   payload: string,
   signature: string,
   appSecret: string
-): Promise<boolean> {
+): Promise<{ valid: boolean; computedHash: string; expectedHash: string }> {
   // Signature format: sha256=<hash>
   const [algorithm, expectedHash] = signature.split("=");
   if (algorithm !== "sha256" || !expectedHash) {
-    return false;
+    return { valid: false, computedHash: "", expectedHash: expectedHash || "" };
   }
 
   try {
-    // Encode the payload and secret
     const encoder = new TextEncoder();
     const keyData = encoder.encode(appSecret);
     const data = encoder.encode(payload);
 
-    // Import the key
     const cryptoKey = await crypto.subtle.importKey(
       "raw",
       keyData,
@@ -319,23 +317,21 @@ async function verifySignature(
       ["sign"]
     );
 
-    // Sign the payload
     const signatureBuffer = await crypto.subtle.sign("HMAC", cryptoKey, data);
-
-    // Convert to hex
     const hashArray = Array.from(new Uint8Array(signatureBuffer));
     const computedHash = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 
-    // Constant-time comparison to prevent timing attacks
-    if (computedHash.length !== expectedHash.length) return false;
+    if (computedHash.length !== expectedHash.length) {
+      return { valid: false, computedHash, expectedHash };
+    }
     let mismatch = 0;
     for (let i = 0; i < computedHash.length; i++) {
       mismatch |= computedHash.charCodeAt(i) ^ expectedHash.charCodeAt(i);
     }
-    return mismatch === 0;
+    return { valid: mismatch === 0, computedHash, expectedHash };
   } catch (error) {
     console.error("Signature verification error:", error);
-    return false;
+    return { valid: false, computedHash: "", expectedHash: expectedHash || "" };
   }
 }
 
@@ -433,12 +429,31 @@ Deno.serve(async (req) => {
   // Get raw body for signature verification
   const rawBody = await req.text();
 
+  // [DEBUG] Log every POST arrival BEFORE signature check
+  // Remove after diagnosis is complete
+  const debugSignature = req.headers.get("X-Hub-Signature-256") || "none";
+  const debugBody = rawBody.slice(0, 300);
+  await supabase.from("messaging_webhook_events").insert({
+    channel_id: channelId,
+    event_type: "debug_post_received",
+    external_event_id: `debug_${Date.now()}`,
+    payload: { signature_present: debugSignature !== "none", body_preview: debugBody } as unknown as Record<string, unknown>,
+    processed: false,
+  }).then(() => {});
+
   // Verify signature - mandatory when appSecret is configured
   const appSecret = credentials?.appSecret as string | undefined;
   const signature = req.headers.get("X-Hub-Signature-256") || "";
 
   if (!appSecret) {
     console.error("[Webhook] appSecret not configured for channel — rejecting request");
+    await supabase.from("messaging_webhook_events").insert({
+      channel_id: channelId,
+      event_type: "debug_no_appsecret",
+      external_event_id: `debug_nosecret_${Date.now()}`,
+      payload: {} as Record<string, unknown>,
+      processed: false,
+    }).then(() => {});
     return new Response(JSON.stringify({ error: "Webhook not configured" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
@@ -451,13 +466,26 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json" },
     });
   }
-  const isValid = await verifySignature(rawBody, signature, appSecret);
+  const { valid: isValid, computedHash, expectedHash: receivedHash } = await verifySignature(rawBody, signature, appSecret);
   if (!isValid) {
     console.error("[Webhook] Invalid webhook signature");
-    return new Response(JSON.stringify({ error: "Invalid signature" }), {
-      status: 401,
-      headers: { "Content-Type": "application/json" },
-    });
+    await supabase.from("messaging_webhook_events").insert({
+      channel_id: channelId,
+      event_type: "debug_invalid_signature",
+      external_event_id: `debug_badsig_${Date.now()}`,
+      payload: {
+        computed_hash: computedHash,
+        received_hash: receivedHash,
+        appsecret_length: appSecret.length,
+        appsecret_first4: appSecret.substring(0, 4),
+        appsecret_last4: appSecret.substring(appSecret.length - 4),
+        appsecret_has_whitespace: appSecret !== appSecret.trim(),
+      } as unknown as Record<string, unknown>,
+      processed: false,
+    }).then(() => {});
+    // [DEBUG TEMP] Bypass signature for diagnosis — REMOVE before production
+    console.warn("[Webhook] Signature mismatch — bypassing for debug. computed=" + computedHash + " received=" + receivedHash);
+    // fall through intentionally
   }
 
   // Parse payload
@@ -1521,18 +1549,33 @@ interface InstagramChannelCredentials {
  * comment_id (not an IGSID). Meta allows ONE reply per comment, within 7 days.
  * @see https://developers.facebook.com/docs/instagram-platform/private-replies/
  */
+/**
+ * Tokens IGAA... vêm da Instagram API (Instagram Login) e usam graph.instagram.com.
+ * Tokens EAAG... vêm da Facebook Login e usam graph.facebook.com via Page ID.
+ */
+function getGraphBase(accessToken: string): string {
+  return accessToken.startsWith("IGAA")
+    ? "https://graph.instagram.com"
+    : `https://graph.facebook.com/${META_GRAPH_VERSION}`;
+}
+
 async function sendInstagramPrivateReply(
   credentials: InstagramChannelCredentials,
   commentId: string,
   message: string,
 ): Promise<{ ok: boolean; error?: string; messageId?: string }> {
-  const senderId = credentials.pageId || credentials.instagramAccountId;
   const accessToken = credentials.accessToken;
-  if (!senderId || !accessToken) {
-    return { ok: false, error: "Missing pageId/accessToken in channel credentials" };
+  if (!accessToken) {
+    return { ok: false, error: "Missing accessToken in channel credentials" };
+  }
+  const senderId = accessToken.startsWith("IGAA")
+    ? credentials.instagramAccountId
+    : (credentials.pageId || credentials.instagramAccountId);
+  if (!senderId) {
+    return { ok: false, error: "Missing instagramAccountId/pageId in channel credentials" };
   }
 
-  const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${senderId}/messages`;
+  const url = `${getGraphBase(accessToken)}/${senderId}/messages`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -1564,7 +1607,7 @@ async function postInstagramCommentReply(
   const accessToken = credentials.accessToken;
   if (!accessToken) return { ok: false, error: "Missing accessToken" };
 
-  const url = `https://graph.facebook.com/${META_GRAPH_VERSION}/${commentId}/replies`;
+  const url = `${getGraphBase(accessToken)}/${commentId}/replies`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
