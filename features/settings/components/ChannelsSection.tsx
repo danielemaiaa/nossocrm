@@ -182,10 +182,11 @@ const WEBHOOK_CONFIGS: Record<string, {
 /** Campos de credencial por provider. */
 const CREDENTIAL_FIELDS: Record<string, { key: string; label: string; placeholder: string; secret?: boolean }[]> = {
   'meta-cloud': [
-    { key: 'accessToken',         label: 'Access Token',           placeholder: 'IGAANZCz4s6H...', secret: true },
+    { key: 'accessToken',         label: 'Access Token',               placeholder: 'IGAANZCz4s6H...', secret: true },
+    { key: 'appSecret',           label: 'App Secret ⚠️ obrigatório',  placeholder: 'Configurações do app → Básico → Chave secreta', secret: true },
+    { key: 'instagramAccountId',  label: 'Instagram Account ID',       placeholder: 'Ex: 17841440845221620' },
     { key: 'phoneNumberId',       label: 'Phone Number ID (WhatsApp)', placeholder: 'Ex: 123456789012345' },
-    { key: 'instagramAccountId',  label: 'Instagram Account ID',   placeholder: 'Ex: 17841440845221620' },
-    { key: 'wabaId',              label: 'WABA ID (WhatsApp)',      placeholder: 'Ex: 987654321098765' },
+    { key: 'wabaId',              label: 'WABA ID (WhatsApp)',          placeholder: 'Ex: 987654321098765' },
   ],
   'z-api': [
     { key: 'instanceId', label: 'Instance ID',    placeholder: 'A1B2C3...' },
