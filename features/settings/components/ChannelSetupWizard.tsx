@@ -507,10 +507,16 @@ function CredentialsStep({
           Unidade de Negócio <span className="text-red-500">*</span>
         </label>
         {businessUnits.length === 0 ? (
-          <div className="p-3 rounded-xl bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20">
+          <div className="p-3 rounded-xl bg-yellow-50 dark:bg-yellow-500/10 border border-yellow-200 dark:border-yellow-500/20 space-y-2">
             <p className="text-xs text-yellow-700 dark:text-yellow-300">
-              Nenhuma unidade de negócio encontrada. Crie uma em Configurações → Unidades antes de adicionar canais.
+              Nenhuma unidade de negócio encontrada. É necessário criar uma antes de adicionar canais.
             </p>
+            <a
+              href="/settings#business-units"
+              className="text-xs font-semibold text-yellow-800 dark:text-yellow-200 underline underline-offset-2 hover:no-underline"
+            >
+              Ir para Configurações → Unidades →
+            </a>
           </div>
         ) : (
           <select
@@ -1156,8 +1162,16 @@ export function ChannelSetupWizard({
       setStep('complete');
       addToast('Canal criado com sucesso!', 'success');
     } catch (error) {
+      const raw = error instanceof Error ? error.message : '';
+      // Detecta o erro de número já registrado no WhatsApp pessoal/Business App
+      const isAlreadyRegistered =
+        raw.includes('2655122') ||
+        raw.toLowerCase().includes('already registered') ||
+        raw.toLowerCase().includes('já está registrado');
       addToast(
-        error instanceof Error ? error.message : 'Erro ao criar canal.',
+        isAlreadyRegistered
+          ? 'Este número já está vinculado a uma conta WhatsApp pessoal ou Business App. Acesse o app, faça logout do número e aguarde até 3 minutos antes de tentar novamente.'
+          : raw || 'Erro ao criar canal.',
         'error'
       );
     }

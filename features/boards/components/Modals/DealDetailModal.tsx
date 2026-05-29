@@ -381,12 +381,19 @@ export const DealDetailModal: React.FC<DealDetailModalProps> = ({ dealId, isOpen
     setShowCustomItem(false);
   };
 
-  const confirmDeleteDeal = () => {
-    if (deleteId) {
-      deleteDeal(deleteId);
+  const confirmDeleteDeal = async () => {
+    if (!deleteId) return;
+    const idToDelete = deleteId;
+    setDeleteId(null);
+    onClose();
+    try {
+      await deleteDeal(idToDelete);
       addToast('Negócio excluído com sucesso', 'success');
-      setDeleteId(null);
-      onClose();
+    } catch (err) {
+      addToast(
+        err instanceof Error ? err.message : 'Erro ao excluir negócio. Tente novamente.',
+        'error'
+      );
     }
   };
 
